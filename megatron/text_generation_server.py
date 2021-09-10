@@ -47,8 +47,15 @@ class MegatronGenerate(Resource):
             if max_len < 1:
                 return "max_len must be an integer greater than 0"
 
+        temperature = args.temperature
+        if "temperature" in request.get_json():
+            temperature = request.get_json()["temperature"]
+            if not isinstance(temperature, float) or not \
+               0.0 < temperature <= 1.0:
+                return "temperature must be a positive float less than or equal to 1.0"
+
         MegatronGenerate.send_do_generate()  # Tell other ranks we're doing generate
-        resp_sentences = generate(self.model, sentences, max_len) 
+        resp_sentences = generate(self.model, sentences, max_len, temperature)
         return jsonify({"sentences": resp_sentences})
 
 

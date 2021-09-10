@@ -136,21 +136,21 @@ def receive_generate_info():
     
     return context_length_tensor, context_tokens_tensor, max_len
 
-def synced_generate(model, context_tokens_tensor, context_length_tensor, max_len):
+def synced_generate(model, context_tokens_tensor, context_length_tensor, max_len, temperature):
     context_length = context_length_tensor.min().item()
     tokens, attention_mask, position_ids = get_batch(context_tokens_tensor)
 
     batch_token_iterator = sample_sequence_batch(model, context_tokens_tensor,
                                                  context_length_tensor,
                                                  attention_mask, position_ids,
-                                                 max_len)
+                                                 max_len, temperature=temperature)
     for tokens, lengths in batch_token_iterator:
         context_length += 1
     
     if tokens is not None:
         return tokens[:, :context_length]
 
-def generate(model, sentences=None, max_len=0):
+def generate(model, sentences=None, max_len=0, temperature=1.0):
     model.eval()
     if torch.distributed.get_rank() == 0:
         context_tokens_tensor, context_length_tensor = tokenize_batch(sentences)
@@ -158,7 +158,7 @@ def generate(model, sentences=None, max_len=0):
     else:
         context_length_tensor, context_tokens_tensor, max_len = receive_generate_info()
     
-    decode_tokens = synced_generate(model, context_tokens_tensor, context_length_tensor, max_len)
+    decode_tokens = synced_generate(model, context_tokens_tensor, context_length_tensor, max_len, temperature)
     
     if torch.distributed.get_rank() == 0:
         args = get_args()
@@ -222,7 +222,7 @@ def forward_step(model, tokens, position_ids, attention_mask, tokentype_ids,
 
 def sample_sequence_batch(model, context_tokens, context_lengths,
                           attention_mask, position_ids,
-                          maxlen=None, type_ids=None):
+                          maxlen=None, type_ids=None, temperature=None):
     args = get_args()
     tokenizer = get_tokenizer()
 
@@ -285,7 +285,7 @@ def sample_sequence_batch(model, context_tokens, context_lengths,
                     prev = torch.argmax(logits, dim=-1).view(-1)
                 else:
                     logits = logits.float()
-                    logits /= args.temperature
+                    logits /= temperature
                     logits = top_k_logits(logits, top_k=args.top_k,
                                           top_p=args.top_p)
                     log_probs = F.softmax(logits, dim=-1)
